@@ -23,7 +23,7 @@ import kotlin.math.min
 class GazeAnalyzer(
     context: Context,
     private val onResult: (GazeFrameResult?) -> Unit
-) : FrameGazeAnalyzer {
+) : ImageAnalysis.Analyzer {
 
     private val isBusy = AtomicBoolean(false)
 
@@ -100,15 +100,11 @@ class GazeAnalyzer(
         val leftNormY = (leftIrisCenterN.y - leftEyeCenterN.y) / leftEyeHalfH
         val rightNormY = (rightIrisCenterN.y - rightEyeCenterN.y) / rightEyeHalfH
 
-        val gazeOffsetX = ((leftNormX + rightNormX) / 2f).coerceIn(-1f, 1f)
-        val gazeOffsetY = ((leftNormY + rightNormY) / 2f).coerceIn(-1f, 1f)
+        val rawOffsetX = ((leftNormX + rightNormX) / 2f).coerceIn(-1f, 1f)
+        val rawOffsetY = ((leftNormY + rightNormY) / 2f).coerceIn(-1f, 1f)
 
         val centerX = imageWidth / 2f
         val centerY = imageHeight / 2f
-        val gazePoint = PointF(
-            (centerX + gazeOffsetX * imageWidth * 0.42f).coerceIn(0f, imageWidth.toFloat()),
-            (centerY + gazeOffsetY * imageHeight * 0.42f).coerceIn(0f, imageHeight.toFloat())
-        )
 
         val eyeDistance = max(kotlin.math.abs(rightEyeCenter.x - leftEyeCenter.x), 1f)
         val minX = min(leftEyeCenter.x, rightEyeCenter.x)
@@ -127,11 +123,16 @@ class GazeAnalyzer(
             ?.get()
             ?.get(0)
         val euler = matrix?.let { eulerFromColumnMajor(it) } ?: Triple(0f, 0f, 0f)
-        val worldGaze = PoseMath.normalize(floatArrayOf(gazeOffsetX, gazeOffsetY, 1f))
+        val compensatedX = (rawOffsetX - euler.second * 0.006f).coerceIn(-1f, 1f)
+        val compensatedY = (rawOffsetY + euler.first * 0.005f).coerceIn(-1f, 1f)
+        val worldGaze = PoseMath.normalize(floatArrayOf(compensatedX, compensatedY, 1f))
 
         return GazeFrameResult(
             boundingBox = faceBox,
-            gazePointImage = gazePoint,
+            gazePointImage = PointF(
+                (centerX + compensatedX * imageWidth * 0.42f).coerceIn(0f, imageWidth.toFloat()),
+                (centerY + compensatedY * imageHeight * 0.42f).coerceIn(0f, imageHeight.toFloat())
+            ),
             leftEyeTrackPointImage = leftIrisCenter,
             rightEyeTrackPointImage = rightIrisCenter,
             imageWidth = imageWidth,
@@ -188,7 +189,7 @@ class GazeAnalyzer(
         )
     }
 
-    override fun release() {
+    fun release() {
         faceLandmarker.close()
     }
 

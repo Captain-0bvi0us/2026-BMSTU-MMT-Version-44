@@ -22,7 +22,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private lateinit var cameraExecutor: ExecutorService
-    private var gazeAnalyzer: FrameGazeAnalyzer? = null
+    private var gazeAnalyzer: GazeAnalyzer? = null
     private val fixationTracker = FixationTracker()
     private var smoothedPoint: PointF? = null
 
@@ -39,7 +39,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
-        binding.previewView.implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+        binding.previewView.implementationMode = PreviewView.ImplementationMode.PERFORMANCE
 
         cameraExecutor = Executors.newSingleThreadExecutor()
         checkCameraPermissionAndStart()
@@ -78,106 +78,8 @@ class MainActivity : AppCompatActivity() {
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .build()
 
-            val analyzer = try {
-                GazeAnalyzer(this) { frame ->
-                runOnUiThread {
-                    if (frame == null) {
-                        fixationTracker.resetTracking()
-                        smoothedPoint = null
-                        binding.infoText.text = "Лицо не обнаружено"
-                        binding.statusText.text = "Наведите лицо в центр кадра"
-                        binding.overlayView.update(
-                            frameResult = null,
-                            fixationPoints = emptyList(),
-                            leftEyeTrail = emptyList(),
-                            rightEyeTrail = emptyList(),
-                            gazeTrail = emptyList(),
-                            isFixating = false,
-                            isFrontCamera = true
-                        )
-                        return@runOnUiThread
-                    }
-
-                    val smoothed = smoothPoint(frame.gazePointImage)
-                    val smoothedFrame = frame.copy(gazePointImage = smoothed)
-                    val fixationState = fixationTracker.update(smoothed, System.currentTimeMillis())
-
-                    binding.overlayView.update(
-                        frameResult = smoothedFrame,
-                        fixationPoints = fixationState.fixationPoints,
-                        leftEyeTrail = emptyList(),
-                        rightEyeTrail = emptyList(),
-                        gazeTrail = emptyList(),
-                        isFixating = fixationState.isFixating,
-                        isFrontCamera = true
-                    )
-
-                    val nx = (smoothed.x / frame.imageWidth).coerceIn(0f, 1f)
-                    val ny = (smoothed.y / frame.imageHeight).coerceIn(0f, 1f)
-                    val screenX = nx * binding.previewView.width
-                    val screenY = ny * binding.previewView.height
-
-                    binding.infoText.text = buildInfoText(
-                        normX = nx,
-                        normY = ny,
-                        screenX = screenX,
-                        screenY = screenY,
-                        frame = frame
-                    )
-                    binding.statusText.text = buildStatusText(fixationState)
-                }
-            }
-            } catch (t: Throwable) {
-                // On some API34 x86_64 emulators MediaPipe JNI is unavailable.
-                // Fallback to ML Kit to keep the app runnable for development.
-                binding.statusText.text = "MediaPipe недоступен, включен fallback ML Kit"
-                Toast.makeText(this, "MediaPipe JNI недоступен: переключение на ML Kit", Toast.LENGTH_LONG).show()
-                MlKitGazeAnalyzer { frame ->
-                    runOnUiThread {
-                        if (frame == null) {
-                            fixationTracker.resetTracking()
-                            smoothedPoint = null
-                            binding.infoText.text = "Лицо не обнаружено"
-                            binding.statusText.text = "Наведите лицо в центр кадра (ML Kit)"
-                            binding.overlayView.update(
-                                frameResult = null,
-                                fixationPoints = emptyList(),
-                                leftEyeTrail = emptyList(),
-                                rightEyeTrail = emptyList(),
-                                gazeTrail = emptyList(),
-                                isFixating = false,
-                                isFrontCamera = true
-                            )
-                            return@runOnUiThread
-                        }
-
-                        val smoothed = smoothPoint(frame.gazePointImage)
-                        val smoothedFrame = frame.copy(gazePointImage = smoothed)
-                        val fixationState = fixationTracker.update(smoothed, System.currentTimeMillis())
-
-                        binding.overlayView.update(
-                            frameResult = smoothedFrame,
-                            fixationPoints = fixationState.fixationPoints,
-                            leftEyeTrail = emptyList(),
-                            rightEyeTrail = emptyList(),
-                            gazeTrail = emptyList(),
-                            isFixating = fixationState.isFixating,
-                            isFrontCamera = true
-                        )
-
-                        val nx = (smoothed.x / frame.imageWidth).coerceIn(0f, 1f)
-                        val ny = (smoothed.y / frame.imageHeight).coerceIn(0f, 1f)
-                        val screenX = nx * binding.previewView.width
-                        val screenY = ny * binding.previewView.height
-                        binding.infoText.text = buildInfoText(nx, ny, screenX, screenY, frame)
-                    }
-                }
-            }
+            val analyzer = GazeAnalyzer(this) { frame -> runOnUiThread { processFrame(frame) } }
             gazeAnalyzer = analyzer
-
-            if (analyzer == null) {
-                return@addListener
-            }
 
             analysis.setAnalyzer(cameraExecutor, analyzer)
             cameraProvider.unbindAll()
@@ -209,9 +111,49 @@ class MainActivity : AppCompatActivity() {
                 }
             } catch (t: Throwable) {
                 binding.infoText.text = "Не удалось подключить камеру: ${t.javaClass.simpleName}"
-                binding.statusText.text = "Проверьте камеру эмулятора (Extended controls > Camera)"
+                binding.statusText.text = "Перезапустите камеру/приложение"
             }
         }, ContextCompat.getMainExecutor(this))
+    }
+
+    private fun processFrame(frame: GazeFrameResult?) {
+        if (frame == null) {
+            fixationTracker.resetTracking()
+            smoothedPoint = null
+            binding.infoText.text = "Лицо не обнаружено"
+            binding.statusText.text = "Наведите лицо в центр кадра"
+            binding.overlayView.update(
+                frameResult = null,
+                fixationPoints = emptyList(),
+                leftEyeTrail = emptyList(),
+                rightEyeTrail = emptyList(),
+                gazeTrail = emptyList(),
+                isFixating = false,
+                isFrontCamera = true
+            )
+            return
+        }
+
+        val smoothed = smoothPoint(frame.gazePointImage)
+        val smoothedFrame = frame.copy(gazePointImage = smoothed)
+        val fixationState = fixationTracker.update(smoothed, System.currentTimeMillis())
+
+        binding.overlayView.update(
+            frameResult = smoothedFrame,
+            fixationPoints = fixationState.fixationPoints,
+            leftEyeTrail = emptyList(),
+            rightEyeTrail = emptyList(),
+            gazeTrail = emptyList(),
+            isFixating = fixationState.isFixating,
+            isFrontCamera = true
+        )
+
+        val nx = (smoothed.x / frame.imageWidth).coerceIn(0f, 1f)
+        val ny = (smoothed.y / frame.imageHeight).coerceIn(0f, 1f)
+        val screenX = nx * binding.previewView.width
+        val screenY = ny * binding.previewView.height
+        binding.infoText.text = buildInfoText(nx, ny, screenX, screenY, frame)
+        binding.statusText.text = buildStatusText(fixationState)
     }
 
     private fun smoothPoint(current: PointF): PointF {
