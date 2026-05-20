@@ -6,6 +6,9 @@ import android.graphics.Rect
 data class GazeFrameResult(
     val boundingBox: Rect,
     val gazePointImage: PointF,
+    val leftEyeTrackPointImage: PointF,
+    val rightEyeTrackPointImage: PointF,
+    val nosePointImage: PointF,
     val imageWidth: Int,
     val imageHeight: Int,
     val eulerX: Float,

@@ -51,5 +51,6 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:$cameraxVersion")
     implementation("androidx.camera:camera-view:$cameraxVersion")
 
-    implementation("com.google.mlkit:face-detection:16.1.7")
+    implementation("com.google.mediapipe:tasks-core:0.10.18")
+    implementation("com.google.mediapipe:tasks-vision:0.10.18")
 }

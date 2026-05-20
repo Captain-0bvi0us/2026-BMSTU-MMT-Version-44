@@ -24,6 +24,10 @@ class MainActivity : AppCompatActivity() {
     private var gazeAnalyzer: GazeAnalyzer? = null
     private val fixationTracker = FixationTracker()
     private var smoothedPoint: PointF? = null
+    private val leftEyeTrail = ArrayDeque<PointF>()
+    private val rightEyeTrail = ArrayDeque<PointF>()
+    private val gazeTrail = ArrayDeque<PointF>()
+    private val maxTrailSize = 90
 
     private val permissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -73,18 +77,25 @@ class MainActivity : AppCompatActivity() {
 
             val analysis = ImageAnalysis.Builder()
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
                 .build()
 
-            gazeAnalyzer = GazeAnalyzer { frame ->
+            gazeAnalyzer = GazeAnalyzer(this) { frame ->
                 runOnUiThread {
                     if (frame == null) {
                         fixationTracker.reset()
                         smoothedPoint = null
+                        leftEyeTrail.clear()
+                        rightEyeTrail.clear()
+                        gazeTrail.clear()
                         binding.infoText.text = "Лицо не обнаружено"
                         binding.statusText.text = "Наведите лицо в центр кадра"
                         binding.overlayView.update(
                             frameResult = null,
                             fixationPoints = emptyList(),
+                            leftEyeTrail = emptyList(),
+                            rightEyeTrail = emptyList(),
+                            gazeTrail = emptyList(),
                             isFixating = false,
                             isFrontCamera = true
                         )
@@ -94,10 +105,16 @@ class MainActivity : AppCompatActivity() {
                     val smoothed = smoothPoint(frame.gazePointImage)
                     val smoothedFrame = frame.copy(gazePointImage = smoothed)
                     val fixationState = fixationTracker.update(smoothed, System.currentTimeMillis())
+                    appendTrail(leftEyeTrail, frame.leftEyeTrackPointImage)
+                    appendTrail(rightEyeTrail, frame.rightEyeTrackPointImage)
+                    appendTrail(gazeTrail, smoothed)
 
                     binding.overlayView.update(
                         frameResult = smoothedFrame,
                         fixationPoints = fixationState.fixationPoints,
+                        leftEyeTrail = leftEyeTrail.toList(),
+                        rightEyeTrail = rightEyeTrail.toList(),
+                        gazeTrail = gazeTrail.toList(),
                         isFixating = fixationState.isFixating,
                         isFrontCamera = true
                     )
@@ -144,6 +161,13 @@ class MainActivity : AppCompatActivity() {
         return smooth
     }
 
+    private fun appendTrail(trail: ArrayDeque<PointF>, point: PointF) {
+        trail.addLast(PointF(point.x, point.y))
+        while (trail.size > maxTrailSize) {
+            trail.removeFirst()
+        }
+    }
+
     private fun buildInfoText(
         normX: Float,
         normY: Float,
@@ -152,9 +176,10 @@ class MainActivity : AppCompatActivity() {
         frame: GazeFrameResult
     ): String {
         return """
-            Вариант 44: фиксации взгляда на экране
+            Вариант 44: трекинг глаз и траектория взгляда
             Координаты (norm): X=${fmt(normX)}  Y=${fmt(normY)}
             Координаты (px): X=${fmt(screenX)}  Y=${fmt(screenY)}
+            Нос (px): X=${fmt(frame.nosePointImage.x)}  Y=${fmt(frame.nosePointImage.y)}
             Euler: X=${fmt(frame.eulerX)}  Y=${fmt(frame.eulerY)}  Z=${fmt(frame.eulerZ)}
         """.trimIndent()
     }
