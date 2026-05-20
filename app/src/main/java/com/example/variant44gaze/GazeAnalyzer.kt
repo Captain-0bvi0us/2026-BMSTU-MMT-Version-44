@@ -1,12 +1,11 @@
 package com.example.variant44gaze
 
 import android.content.Context
-import android.graphics.Bitmap
 import android.graphics.PointF
 import android.graphics.Rect
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
-import com.google.mediapipe.framework.image.BitmapImageBuilder
+import com.google.mediapipe.framework.image.MediaImageBuilder
 import com.google.mediapipe.tasks.components.containers.NormalizedLandmark
 import com.google.mediapipe.tasks.core.BaseOptions
 import com.google.mediapipe.tasks.core.Delegate
@@ -58,14 +57,18 @@ class GazeAnalyzer(
             imageProxy.close()
             return
         }
+        val mediaImage = imageProxy.image
+        if (mediaImage == null) {
+            isBusy.set(false)
+            imageProxy.close()
+            return
+        }
         try {
-            val bitmap = imageProxyToBitmap(imageProxy)
-            val mpImage = BitmapImageBuilder(bitmap).build()
+            val mpImage = MediaImageBuilder(mediaImage).build()
             val processingOptions = ImageProcessingOptions.builder()
                 .setRotationDegrees(imageProxy.imageInfo.rotationDegrees)
                 .build()
             faceLandmarker.detectAsync(mpImage, processingOptions, System.currentTimeMillis())
-            bitmap.recycle()
         } catch (_: Exception) {
             isBusy.set(false)
             onResult(null)
@@ -153,23 +156,6 @@ class GazeAnalyzer(
         }
         val n = indexes.size.toFloat()
         return PointF(sx / n, sy / n)
-    }
-
-    private fun imageProxyToBitmap(image: ImageProxy): Bitmap {
-        val plane = image.planes[0]
-        val buf = plane.buffer.duplicate()
-        buf.rewind()
-        val pixelStride = plane.pixelStride
-        val rowStride = plane.rowStride
-        val rowPadding = rowStride - pixelStride * image.width
-        val w = image.width + rowPadding / pixelStride.coerceAtLeast(1)
-        val bitmap = Bitmap.createBitmap(w, image.height, Bitmap.Config.ARGB_8888)
-        bitmap.copyPixelsFromBuffer(buf)
-        return if (rowPadding == 0) {
-            bitmap
-        } else {
-            Bitmap.createBitmap(bitmap, 0, 0, image.width, image.height).also { bitmap.recycle() }
-        }
     }
 
     private fun eulerFromColumnMajor(m: FloatArray): Triple<Float, Float, Float> {
