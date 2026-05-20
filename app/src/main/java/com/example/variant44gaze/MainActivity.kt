@@ -11,6 +11,7 @@ import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import com.example.variant44gaze.databinding.ActivityMainBinding
 import java.util.Locale
@@ -38,6 +39,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        binding.previewView.implementationMode = PreviewView.ImplementationMode.COMPATIBLE
 
         cameraExecutor = Executors.newSingleThreadExecutor()
         checkCameraPermissionAndStart()
@@ -139,12 +141,36 @@ class MainActivity : AppCompatActivity() {
 
             analysis.setAnalyzer(cameraExecutor, analyzer)
             cameraProvider.unbindAll()
-            cameraProvider.bindToLifecycle(
-                this,
-                CameraSelector.DEFAULT_FRONT_CAMERA,
-                preview,
-                analysis
-            )
+            val selector = when {
+                cameraProvider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA) ->
+                    CameraSelector.DEFAULT_FRONT_CAMERA
+                cameraProvider.hasCamera(CameraSelector.DEFAULT_BACK_CAMERA) ->
+                    CameraSelector.DEFAULT_BACK_CAMERA
+                else -> null
+            }
+
+            if (selector == null) {
+                binding.infoText.text = "Камера недоступна в эмуляторе"
+                binding.statusText.text = "Включите Virtual Scene/Webcam в настройках камеры AVD"
+                return@addListener
+            }
+
+            try {
+                cameraProvider.bindToLifecycle(
+                    this,
+                    selector,
+                    preview,
+                    analysis
+                )
+                binding.statusText.text = if (selector == CameraSelector.DEFAULT_FRONT_CAMERA) {
+                    "Камера: фронтальная"
+                } else {
+                    "Камера: задняя (fallback)"
+                }
+            } catch (t: Throwable) {
+                binding.infoText.text = "Не удалось подключить камеру: ${t.javaClass.simpleName}"
+                binding.statusText.text = "Проверьте камеру эмулятора (Extended controls > Camera)"
+            }
         }, ContextCompat.getMainExecutor(this))
     }
 
