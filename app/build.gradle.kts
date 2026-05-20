@@ -55,6 +55,7 @@ dependencies {
     implementation("androidx.camera:camera-camera2:$cameraxVersion")
     implementation("androidx.camera:camera-lifecycle:$cameraxVersion")
     implementation("androidx.camera:camera-view:$cameraxVersion")
+    implementation("com.google.mlkit:face-detection:16.1.7")
 
     // Emulator-friendly debug version + newer release version for device compatibility.
     val mediapipeDebugVersion = "0.10.21"

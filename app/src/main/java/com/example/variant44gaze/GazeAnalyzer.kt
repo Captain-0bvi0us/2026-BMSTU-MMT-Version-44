@@ -23,7 +23,7 @@ import kotlin.math.min
 class GazeAnalyzer(
     context: Context,
     private val onResult: (GazeFrameResult?) -> Unit
-) : ImageAnalysis.Analyzer {
+) : FrameGazeAnalyzer {
 
     private val isBusy = AtomicBoolean(false)
 
