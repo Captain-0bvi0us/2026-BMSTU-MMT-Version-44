@@ -188,7 +188,7 @@ class GazeAnalyzer(
         )
     }
 
-    fun release() {
+    override fun release() {
         faceLandmarker.close()
     }
 
