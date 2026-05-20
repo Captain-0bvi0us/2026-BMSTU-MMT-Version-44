@@ -10,12 +10,13 @@ data class FixationState(
 )
 
 class FixationTracker(
-    private val dwellMs: Long = 450L,
-    private val radiusPx: Float = 55f
+    private val dwellMs: Long = 350L,
+    private val radiusPx: Float = 70f,
+    private val mergeRadiusPx: Float = 45f
 ) {
     private var stablePoint: PointF? = null
     private var stableStartMs: Long = 0L
-    private var lastEventMs: Long = 0L
+    private var fixationCaptured = false
     private val points = mutableListOf<PointF>()
 
     fun update(currentPoint: PointF, nowMs: Long): FixationState {
@@ -23,6 +24,7 @@ class FixationTracker(
         if (anchor == null) {
             stablePoint = PointF(currentPoint.x, currentPoint.y)
             stableStartMs = nowMs
+            fixationCaptured = false
             return FixationState(isFixating = false, fixationCount = points.size, fixationPoints = points.toList())
         }
 
@@ -30,14 +32,14 @@ class FixationTracker(
         if (dist > radiusPx) {
             stablePoint = PointF(currentPoint.x, currentPoint.y)
             stableStartMs = nowMs
+            fixationCaptured = false
             return FixationState(isFixating = false, fixationCount = points.size, fixationPoints = points.toList())
         }
 
         val isFixating = nowMs - stableStartMs >= dwellMs
-        if (isFixating && nowMs - lastEventMs >= dwellMs) {
-            lastEventMs = nowMs
-            points.add(PointF(anchor.x, anchor.y))
-            if (points.size > 30) points.removeAt(0)
+        if (isFixating && !fixationCaptured) {
+            fixationCaptured = true
+            addFixationPoint(anchor)
         }
 
         return FixationState(
@@ -47,10 +49,24 @@ class FixationTracker(
         )
     }
 
-    fun reset() {
+    private fun addFixationPoint(anchor: PointF) {
+        val existing = points.indexOfFirst { p -> hypot(p.x - anchor.x, p.y - anchor.y) <= mergeRadiusPx }
+        if (existing >= 0) {
+            points[existing] = PointF(anchor.x, anchor.y)
+        } else {
+            points.add(PointF(anchor.x, anchor.y))
+            if (points.size > 30) points.removeAt(0)
+        }
+    }
+
+    fun resetTracking() {
         stablePoint = null
         stableStartMs = 0L
-        lastEventMs = 0L
+        fixationCaptured = false
+    }
+
+    fun resetAll() {
+        resetTracking()
         points.clear()
     }
 }

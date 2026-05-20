@@ -81,11 +81,14 @@ class GazeAnalyzer(
         val gazeOffsetX = ((leftTrack.normX + rightTrack.normX) / 2f).coerceIn(-0.9f, 0.9f)
         val gazeOffsetY = ((leftTrack.normY + rightTrack.normY) / 2f).coerceIn(-0.9f, 0.9f)
 
-        // Нейтральный взгляд стремится к носу, затем уводится глазным смещением.
+        // Привязываем точку взгляда к центру кадра, а не к положению лица:
+        // при смещении головы по кадру "экранная" точка остается стабильнее.
+        val centerX = imageWidth / 2f
+        val centerY = imageHeight / 2f
         val gazePoint = PointF(
-            (nosePoint.x + gazeOffsetX * eyeDistanceNorm * imageWidth * 1.2f)
+            (centerX + gazeOffsetX * imageWidth * 0.35f)
                 .coerceIn(0f, imageWidth.toFloat()),
-            (nosePoint.y + gazeOffsetY * eyeDistanceNorm * imageWidth * 1.35f)
+            (centerY + gazeOffsetY * imageHeight * 0.35f)
                 .coerceIn(0f, imageHeight.toFloat())
         )
 
@@ -97,7 +100,6 @@ class GazeAnalyzer(
             gazePointImage = gazePoint,
             leftEyeTrackPointImage = leftTrack.point,
             rightEyeTrackPointImage = rightTrack.point,
-            nosePointImage = nosePoint,
             imageWidth = imageWidth,
             imageHeight = imageHeight,
             eulerX = face.headEulerAngleX,
