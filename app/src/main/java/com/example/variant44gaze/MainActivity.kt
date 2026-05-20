@@ -79,10 +79,15 @@ class MainActivity : AppCompatActivity() {
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .build()
 
-            val analyzer = GazeAnalyzer(this) { frame -> runOnUiThread { processFrame(frame) } }
+            val analyzer = try {
+                GazeAnalyzer(this) { frame -> runOnUiThread { processFrame(frame) } }
+            } catch (t: Throwable) {
+                binding.infoText.text = "MediaPipe JNI недоступен на этом эмуляторе: ${t.javaClass.simpleName}"
+                binding.statusText.text = "Запустите debug после Sync/Rebuild или используйте телефон"
+                null
+            }
             gazeAnalyzer = analyzer
-
-            analysis.setAnalyzer(cameraExecutor, analyzer)
+            analyzer?.let { analysis.setAnalyzer(cameraExecutor, it) }
             cameraProvider.unbindAll()
             val selector = when {
                 cameraProvider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA) ->
@@ -99,12 +104,20 @@ class MainActivity : AppCompatActivity() {
             }
 
             try {
-                cameraProvider.bindToLifecycle(
-                    this,
-                    selector,
-                    preview,
-                    analysis
-                )
+                if (analyzer != null) {
+                    cameraProvider.bindToLifecycle(
+                        this,
+                        selector,
+                        preview,
+                        analysis
+                    )
+                } else {
+                    cameraProvider.bindToLifecycle(
+                        this,
+                        selector,
+                        preview
+                    )
+                }
                 binding.statusText.text = if (selector == CameraSelector.DEFAULT_FRONT_CAMERA) {
                     "Камера: фронтальная"
                 } else {
