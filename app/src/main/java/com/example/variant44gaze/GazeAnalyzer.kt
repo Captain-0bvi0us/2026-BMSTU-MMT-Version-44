@@ -10,6 +10,7 @@ import com.google.mediapipe.framework.image.BitmapImageBuilder
 import com.google.mediapipe.tasks.components.containers.NormalizedLandmark
 import com.google.mediapipe.tasks.core.BaseOptions
 import com.google.mediapipe.tasks.core.Delegate
+import com.google.mediapipe.tasks.vision.core.ImageProcessingOptions
 import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarker
 import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarkerResult
@@ -59,10 +60,11 @@ class GazeAnalyzer(
         }
         try {
             val bitmap = imageProxyToBitmap(imageProxy)
-            val mpImage = BitmapImageBuilder(bitmap)
+            val mpImage = BitmapImageBuilder(bitmap).build()
+            val processingOptions = ImageProcessingOptions.builder()
                 .setRotationDegrees(imageProxy.imageInfo.rotationDegrees)
                 .build()
-            faceLandmarker.detectAsync(mpImage, System.currentTimeMillis())
+            faceLandmarker.detectAsync(mpImage, processingOptions, System.currentTimeMillis())
             bitmap.recycle()
         } catch (_: Exception) {
             isBusy.set(false)
