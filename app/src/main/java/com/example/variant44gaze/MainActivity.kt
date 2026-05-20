@@ -77,10 +77,9 @@ class MainActivity : AppCompatActivity() {
 
             val analysis = ImageAnalysis.Builder()
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
                 .build()
 
-            gazeAnalyzer = GazeAnalyzer(this) { frame ->
+            gazeAnalyzer = GazeAnalyzer { frame ->
                 runOnUiThread {
                     if (frame == null) {
                         fixationTracker.reset()

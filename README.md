@@ -5,8 +5,8 @@
 ## Что реализовано
 
 - Поток с фронтальной камеры через CameraX (`Preview` + `ImageAnalysis`).
-- Детекция лица, радужек и 478 landmark-точек через `MediaPipe Face Landmarker`.
-- Оценка направления взгляда по смещению радужки относительно глаза, а не по повороту головы.
+- Детекция лица и контуров глаз через `ML Kit Face Detection`.
+- Оценка направления взгляда по динамике глазных контуров (без привязки точки к углам головы).
 - Трекинг фиксаций (dwell-time + радиус устойчивости).
 - Отрисовка:
   - рамка лица,
@@ -24,12 +24,11 @@
 4. Запустите эмулятор (например Pixel 6, API 34) или подключите телефон.
 5. Нажмите Run для модуля `app`.
 6. Разрешите доступ к камере.
-7. В проекте уже лежит модель `app/src/main/assets/face_landmarker.task`.
 
 ## Структура ключевых файлов
 
 - `app/src/main/java/com/example/variant44gaze/MainActivity.kt` — запуск камеры, обновление UI.
-- `app/src/main/java/com/example/variant44gaze/GazeAnalyzer.kt` — кадр → MediaPipe Iris/FaceLandmarker → точка взгляда.
+- `app/src/main/java/com/example/variant44gaze/GazeAnalyzer.kt` — кадр → ML Kit → точка взгляда.
 - `app/src/main/java/com/example/variant44gaze/FixationTracker.kt` — детекция фиксаций.
 - `app/src/main/java/com/example/variant44gaze/OverlayView.kt` — визуализация точки и фиксаций.
 - `app/src/main/java/com/example/variant44gaze/PoseMath.kt` — 3D-повороты вектора.

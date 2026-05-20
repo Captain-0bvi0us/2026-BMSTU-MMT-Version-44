@@ -1,201 +1,177 @@
 package com.example.variant44gaze
 
-import android.content.Context
-import android.graphics.Bitmap
 import android.graphics.PointF
 import android.graphics.Rect
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
-import com.google.mediapipe.framework.image.BitmapImageBuilder
-import com.google.mediapipe.tasks.components.containers.NormalizedLandmark
-import com.google.mediapipe.tasks.core.BaseOptions
-import com.google.mediapipe.tasks.core.Delegate
-import com.google.mediapipe.tasks.vision.core.ImageProcessingOptions
-import com.google.mediapipe.tasks.vision.core.RunningMode
-import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarker
-import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarkerResult
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.face.Face
+import com.google.mlkit.vision.face.FaceContour
+import com.google.mlkit.vision.face.FaceDetection
+import com.google.mlkit.vision.face.FaceDetector
+import com.google.mlkit.vision.face.FaceDetectorOptions
 import java.util.concurrent.atomic.AtomicBoolean
-import kotlin.math.atan2
-import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 
 class GazeAnalyzer(
-    context: Context,
     private val onResult: (GazeFrameResult?) -> Unit
 ) : ImageAnalysis.Analyzer {
 
-    private val isBusy = AtomicBoolean(false)
+    private val detectorOptions = FaceDetectorOptions.Builder()
+        .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
+        .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_ALL)
+        .setContourMode(FaceDetectorOptions.CONTOUR_MODE_ALL)
+        .enableTracking()
+        .build()
 
-    private val faceLandmarker: FaceLandmarker = FaceLandmarker.createFromOptions(
-        context,
-        FaceLandmarker.FaceLandmarkerOptions.builder()
-            .setBaseOptions(
-                BaseOptions.builder()
-                    .setDelegate(Delegate.CPU)
-                    .setModelAssetPath(MODEL_ASSET)
-                    .build()
-            )
-            .setRunningMode(RunningMode.LIVE_STREAM)
-            .setNumFaces(1)
-            .setMinFaceDetectionConfidence(0.45f)
-            .setMinFacePresenceConfidence(0.45f)
-            .setMinTrackingConfidence(0.45f)
-            .setOutputFacialTransformationMatrixes(true)
-            .setResultListener { result, input ->
-                onResult(buildResult(result, input.width, input.height))
-                isBusy.set(false)
-            }
-            .setErrorListener {
-                onResult(null)
-                isBusy.set(false)
-            }
-            .build()
-    )
+    private val detector: FaceDetector = FaceDetection.getClient(detectorOptions)
+    private val isBusy = AtomicBoolean(false)
 
     override fun analyze(imageProxy: ImageProxy) {
         if (isBusy.getAndSet(true)) {
             imageProxy.close()
             return
         }
-        try {
-            val bitmap = imageProxyToBitmap(imageProxy)
-            val mpImage = BitmapImageBuilder(bitmap).build()
-            val processingOptions = ImageProcessingOptions.builder()
-                .setRotationDegrees(imageProxy.imageInfo.rotationDegrees)
-                .build()
-            faceLandmarker.detectAsync(mpImage, processingOptions, System.currentTimeMillis())
-            bitmap.recycle()
-        } catch (_: Exception) {
-            isBusy.set(false)
-            onResult(null)
-        } finally {
+
+        val mediaImage = imageProxy.image
+        if (mediaImage == null) {
             imageProxy.close()
+            isBusy.set(false)
+            return
         }
+
+        val rotation = imageProxy.imageInfo.rotationDegrees
+        val image = InputImage.fromMediaImage(mediaImage, rotation)
+        val resultWidth = if (rotation == 90 || rotation == 270) imageProxy.height else imageProxy.width
+        val resultHeight = if (rotation == 90 || rotation == 270) imageProxy.width else imageProxy.height
+
+        detector.process(image)
+            .addOnSuccessListener { faces ->
+                onResult(buildResult(faces, resultWidth, resultHeight))
+            }
+            .addOnFailureListener {
+                onResult(null)
+            }
+            .addOnCompleteListener {
+                imageProxy.close()
+                isBusy.set(false)
+            }
     }
 
-    private fun buildResult(result: FaceLandmarkerResult, imageWidth: Int, imageHeight: Int): GazeFrameResult? {
-        val faces = result.faceLandmarks()
-        if (faces.isEmpty()) return null
-        val landmarks = faces[0]
-        if (landmarks.size < 478) return null
+    private fun buildResult(faces: List<Face>, imageWidth: Int, imageHeight: Int): GazeFrameResult? {
+        val face = faces.maxByOrNull { it.boundingBox.width() * it.boundingBox.height() } ?: return null
+        val leftEyePoints = face.getContour(FaceContour.LEFT_EYE)?.points ?: emptyList()
+        val rightEyePoints = face.getContour(FaceContour.RIGHT_EYE)?.points ?: emptyList()
+        if (leftEyePoints.isEmpty() || rightEyePoints.isEmpty()) return null
 
-        val leftEyeCenter = average(landmarks, LEFT_EYE)
-        val rightEyeCenter = average(landmarks, RIGHT_EYE)
-        val leftIrisCenter = average(landmarks, LEFT_IRIS)
-        val rightIrisCenter = average(landmarks, RIGHT_IRIS)
-        val nose = landmarks[NOSE_TIP]
-        val nosePoint = PointF(nose.x() * imageWidth, nose.y() * imageHeight)
+        val leftTrack = estimateEyeTrackPoint(leftEyePoints)
+        val rightTrack = estimateEyeTrackPoint(rightEyePoints)
+        val leftCenter = leftTrack.center
+        val rightCenter = rightTrack.center
+        val eyesMiddle = PointF((leftCenter.x + rightCenter.x) / 2f, (leftCenter.y + rightCenter.y) / 2f)
 
-        val eyeDistance = max(kotlin.math.abs(rightEyeCenter.x - leftEyeCenter.x), 1e-4f)
-        val leftOffsetX = (leftIrisCenter.x - leftEyeCenter.x) / eyeDistance
-        val leftOffsetY = (leftIrisCenter.y - leftEyeCenter.y) / eyeDistance
-        val rightOffsetX = (rightIrisCenter.x - rightEyeCenter.x) / eyeDistance
-        val rightOffsetY = (rightIrisCenter.y - rightEyeCenter.y) / eyeDistance
+        val noseBridge = face.getContour(FaceContour.NOSE_BRIDGE)?.points ?: emptyList()
+        val nosePoint = if (noseBridge.isNotEmpty()) averagePoint(noseBridge) else eyesMiddle
 
-        val gazeOffsetX = ((leftOffsetX + rightOffsetX) / 2f).coerceIn(-0.45f, 0.45f)
-        val gazeOffsetY = ((leftOffsetY + rightOffsetY) / 2f).coerceIn(-0.45f, 0.45f)
+        val eyeDistancePx = max(kotlin.math.abs(rightCenter.x - leftCenter.x), 1f)
+        val eyeDistanceNorm = eyeDistancePx / imageWidth.toFloat().coerceAtLeast(1f)
 
-        // Центр нейтрального взгляда - переносица; при смещении радужки точка уходит от носа.
-        val gazePx = PointF(
-            (nosePoint.x + gazeOffsetX * eyeDistance * imageWidth * 0.9f)
+        // Смещение "внутриглазной" трек-точки (proxy для направления взгляда) - без использования углов головы.
+        val gazeOffsetX = ((leftTrack.normX + rightTrack.normX) / 2f).coerceIn(-0.9f, 0.9f)
+        val gazeOffsetY = ((leftTrack.normY + rightTrack.normY) / 2f).coerceIn(-0.9f, 0.9f)
+
+        // Нейтральный взгляд стремится к носу, затем уводится глазным смещением.
+        val gazePoint = PointF(
+            (nosePoint.x + gazeOffsetX * eyeDistanceNorm * imageWidth * 1.2f)
                 .coerceIn(0f, imageWidth.toFloat()),
-            (nosePoint.y + gazeOffsetY * eyeDistance * imageWidth * 1.05f)
+            (nosePoint.y + gazeOffsetY * eyeDistanceNorm * imageWidth * 1.35f)
                 .coerceIn(0f, imageHeight.toFloat())
         )
 
-        val matrix = result.facialTransformationMatrixes()
-            .takeIf { it.isPresent && it.get().isNotEmpty() }
-            ?.get()
-            ?.get(0)
-        val euler = matrix?.let { eulerFromColumnMajor(it) } ?: Triple(0f, 0f, 0f)
+        val faceBox = buildFaceBox(leftCenter, rightCenter, nosePoint, imageWidth, imageHeight)
         val worldGaze = PoseMath.normalize(floatArrayOf(gazeOffsetX, gazeOffsetY, 1f))
-
-        val minX = listOf(leftEyeCenter.x, rightEyeCenter.x, nosePoint.x).minOrNull() ?: 0f
-        val minY = listOf(leftEyeCenter.y, rightEyeCenter.y, nosePoint.y).minOrNull() ?: 0f
-        val maxX = listOf(leftEyeCenter.x, rightEyeCenter.x, nosePoint.x).maxOrNull() ?: imageWidth.toFloat()
-        val maxY = listOf(leftEyeCenter.y, rightEyeCenter.y, nosePoint.y).maxOrNull() ?: imageHeight.toFloat()
-        val faceBox = Rect(
-            max(0f, minX - eyeDistance * imageWidth * 0.4f).toInt(),
-            max(0f, minY - eyeDistance * imageWidth * 0.5f).toInt(),
-            min(imageWidth.toFloat(), maxX + eyeDistance * imageWidth * 0.4f).toInt(),
-            min(imageHeight.toFloat(), maxY + eyeDistance * imageWidth * 0.8f).toInt()
-        )
 
         return GazeFrameResult(
             boundingBox = faceBox,
-            gazePointImage = gazePx,
-            leftEyeTrackPointImage = leftIrisCenter,
-            rightEyeTrackPointImage = rightIrisCenter,
+            gazePointImage = gazePoint,
+            leftEyeTrackPointImage = leftTrack.point,
+            rightEyeTrackPointImage = rightTrack.point,
             nosePointImage = nosePoint,
             imageWidth = imageWidth,
             imageHeight = imageHeight,
-            eulerX = euler.first,
-            eulerY = euler.second,
-            eulerZ = euler.third,
+            eulerX = face.headEulerAngleX,
+            eulerY = face.headEulerAngleY,
+            eulerZ = face.headEulerAngleZ,
             gazeVector3D = worldGaze
         )
     }
 
-    private fun average(landmarks: List<NormalizedLandmark>, indexes: IntArray): PointF {
-        var sx = 0f
-        var sy = 0f
-        for (idx in indexes) {
-            sx += landmarks[idx].x()
-            sy += landmarks[idx].y()
-        }
-        val n = indexes.size.toFloat()
-        return PointF(sx / n, sy / n)
-    }
-
-    private fun imageProxyToBitmap(image: ImageProxy): Bitmap {
-        val plane = image.planes[0]
-        val buf = plane.buffer.duplicate()
-        buf.rewind()
-        val pixelStride = plane.pixelStride
-        val rowStride = plane.rowStride
-        val rowPadding = rowStride - pixelStride * image.width
-        val w = image.width + rowPadding / pixelStride.coerceAtLeast(1)
-        val bitmap = Bitmap.createBitmap(w, image.height, Bitmap.Config.ARGB_8888)
-        bitmap.copyPixelsFromBuffer(buf)
-        return if (rowPadding == 0) {
-            bitmap
-        } else {
-            Bitmap.createBitmap(bitmap, 0, 0, image.width, image.height).also { bitmap.recycle() }
-        }
-    }
-
-    private fun eulerFromColumnMajor(m: FloatArray): Triple<Float, Float, Float> {
-        if (m.size < 11) return Triple(0f, 0f, 0f)
-        val r00 = m[0].toDouble()
-        val r10 = m[1].toDouble()
-        val r20 = m[2].toDouble()
-        val r21 = m[6].toDouble()
-        val r22 = m[10].toDouble()
-        val yaw = atan2(r10, r00)
-        val pitch = atan2(-r20, hypot(r21, r22))
-        val roll = atan2(r21, r22)
-        return Triple(
-            Math.toDegrees(pitch).toFloat(),
-            Math.toDegrees(yaw).toFloat(),
-            Math.toDegrees(roll).toFloat()
+    private fun buildFaceBox(
+        leftEye: PointF,
+        rightEye: PointF,
+        nose: PointF,
+        imageWidth: Int,
+        imageHeight: Int
+    ): Rect {
+        val eyeDistance = max(kotlin.math.abs(rightEye.x - leftEye.x), 1f)
+        val minX = min(leftEye.x, rightEye.x)
+        val maxX = max(leftEye.x, rightEye.x)
+        val top = min(min(leftEye.y, rightEye.y), nose.y) - eyeDistance * 0.8f
+        val bottom = max(max(leftEye.y, rightEye.y), nose.y) + eyeDistance * 1.3f
+        return Rect(
+            max(0f, minX - eyeDistance * 0.8f).toInt(),
+            max(0f, top).toInt(),
+            min(imageWidth.toFloat(), maxX + eyeDistance * 0.8f).toInt(),
+            min(imageHeight.toFloat(), bottom).toInt()
         )
+    }
+
+    private data class EyeTrack(
+        val point: PointF,
+        val center: PointF,
+        val normX: Float,
+        val normY: Float
+    )
+
+    private fun estimateEyeTrackPoint(points: List<PointF>): EyeTrack {
+        var minX = Float.MAX_VALUE
+        var maxX = -Float.MAX_VALUE
+        var minY = Float.MAX_VALUE
+        var maxY = -Float.MAX_VALUE
+        var sumX = 0f
+        var sumY = 0f
+        for (p in points) {
+            if (p.x < minX) minX = p.x
+            if (p.x > maxX) maxX = p.x
+            if (p.y < minY) minY = p.y
+            if (p.y > maxY) maxY = p.y
+            sumX += p.x
+            sumY += p.y
+        }
+
+        val center = PointF(sumX / points.size, sumY / points.size)
+        val halfW = ((maxX - minX) / 2f).coerceAtLeast(1f)
+        val halfH = ((maxY - minY) / 2f).coerceAtLeast(1f)
+        val midX = (minX + maxX) / 2f
+        val midY = (minY + maxY) / 2f
+
+        val normX = ((center.x - midX) / halfW).coerceIn(-1f, 1f)
+        val normY = ((center.y - midY) / halfH).coerceIn(-1f, 1f)
+        return EyeTrack(point = PointF(center.x, center.y), center = center, normX = normX, normY = normY)
+    }
+
+    private fun averagePoint(points: List<PointF>): PointF {
+        var sumX = 0f
+        var sumY = 0f
+        for (p in points) {
+            sumX += p.x
+            sumY += p.y
+        }
+        return PointF(sumX / points.size, sumY / points.size)
     }
 
     fun release() {
-        faceLandmarker.close()
-    }
-
-    companion object {
-        private const val MODEL_ASSET = "face_landmarker.task"
-        private const val NOSE_TIP = 1
-        private val LEFT_IRIS = intArrayOf(468, 469, 470, 471, 472)
-        private val RIGHT_IRIS = intArrayOf(473, 474, 475, 476, 477)
-        private val LEFT_EYE = intArrayOf(
-            33, 7, 163, 144, 145, 153, 154, 155, 133, 173, 157, 158, 159, 160, 161, 246
-        )
-        private val RIGHT_EYE = intArrayOf(
-            362, 382, 381, 380, 374, 373, 390, 249, 263, 466, 388, 387, 386, 385, 384, 398
-        )
+        detector.close()
     }
 }
