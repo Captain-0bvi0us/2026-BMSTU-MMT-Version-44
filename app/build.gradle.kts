@@ -51,5 +51,7 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:$cameraxVersion")
     implementation("androidx.camera:camera-view:$cameraxVersion")
 
-    implementation("com.google.mlkit:face-detection:16.1.7")
+    val mediapipeVersion = "0.10.26"
+    implementation("com.google.mediapipe:tasks-core:$mediapipeVersion")
+    implementation("com.google.mediapipe:tasks-vision:$mediapipeVersion")
 }
