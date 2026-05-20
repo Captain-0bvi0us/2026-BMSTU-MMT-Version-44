@@ -51,6 +51,7 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:$cameraxVersion")
     implementation("androidx.camera:camera-view:$cameraxVersion")
 
-    implementation("com.google.mediapipe:tasks-core:0.10.18")
-    implementation("com.google.mediapipe:tasks-vision:0.10.18")
+    val mediapipeVersion = "0.10.26"
+    implementation("com.google.mediapipe:tasks-core:$mediapipeVersion")
+    implementation("com.google.mediapipe:tasks-vision:$mediapipeVersion")
 }
