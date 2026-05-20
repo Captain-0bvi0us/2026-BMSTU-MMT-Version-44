@@ -37,6 +37,11 @@ android {
     buildFeatures {
         viewBinding = true
     }
+
+    packaging {
+        // Workaround for some third-party JNI artifacts on emulator/debug builds.
+        jniLibs.useLegacyPackaging = true
+    }
 }
 
 dependencies {
@@ -51,7 +56,11 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:$cameraxVersion")
     implementation("androidx.camera:camera-view:$cameraxVersion")
 
-    val mediapipeVersion = "0.10.26"
-    implementation("com.google.mediapipe:tasks-core:$mediapipeVersion")
-    implementation("com.google.mediapipe:tasks-vision:$mediapipeVersion")
+    // Emulator-friendly debug version + newer release version for device compatibility.
+    val mediapipeDebugVersion = "0.10.21"
+    val mediapipeReleaseVersion = "0.10.26"
+    debugImplementation("com.google.mediapipe:tasks-core:$mediapipeDebugVersion")
+    debugImplementation("com.google.mediapipe:tasks-vision:$mediapipeDebugVersion")
+    releaseImplementation("com.google.mediapipe:tasks-core:$mediapipeReleaseVersion")
+    releaseImplementation("com.google.mediapipe:tasks-vision:$mediapipeReleaseVersion")
 }

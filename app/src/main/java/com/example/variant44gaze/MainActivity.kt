@@ -76,7 +76,8 @@ class MainActivity : AppCompatActivity() {
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .build()
 
-            gazeAnalyzer = GazeAnalyzer(this) { frame ->
+            val analyzer = try {
+                GazeAnalyzer(this) { frame ->
                 runOnUiThread {
                     if (frame == null) {
                         fixationTracker.resetTracking()
@@ -124,8 +125,19 @@ class MainActivity : AppCompatActivity() {
                     binding.statusText.text = buildStatusText(fixationState)
                 }
             }
+            } catch (t: Throwable) {
+                binding.infoText.text = "Ошибка инициализации трекинга: ${t.javaClass.simpleName}"
+                binding.statusText.text = "Попробуйте API 34 x86_64 и пересоберите проект"
+                Toast.makeText(this, "Не удалось запустить анализатор взгляда", Toast.LENGTH_LONG).show()
+                null
+            }
+            gazeAnalyzer = analyzer
 
-            analysis.setAnalyzer(cameraExecutor, gazeAnalyzer!!)
+            if (analyzer == null) {
+                return@addListener
+            }
+
+            analysis.setAnalyzer(cameraExecutor, analyzer)
             cameraProvider.unbindAll()
             cameraProvider.bindToLifecycle(
                 this,
