@@ -4,6 +4,11 @@ import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
 
+/**
+ * Утилиты для работы с 3D-векторами направления и углами Эйлера.
+ * Используются для head-pose компенсации: если калибровка не активна,
+ * можно скорректировать сырое направление взгляда поправкой на поворот головы.
+ */
 object PoseMath {
     fun normalize(v: FloatArray): FloatArray {
         val len = sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2])

@@ -1,4 +1,54 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">TMM Variant 44 Fixations</string>
+    <string name="app_name">Gaze Fixations (TMM v44)</string>
+
+    <string name="btn_calibrate">Калибровка</string>
+    <string name="btn_heatmap">Тепловая карта</string>
+    <string name="btn_live">Видео</string>
+    <string name="btn_export">Экспорт CSV</string>
+    <string name="btn_clear">Очистить</string>
+    <string name="btn_face">Лицо</string>
+    <string name="btn_grid">Сетка</string>
+    <string name="btn_fixations">Фиксации</string>
+    <string name="btn_reset_cal">Сброс калибр.</string>
+
+    <string name="info_initial">Запуск камеры…</string>
+    <string name="status_initial">Ожидание лица</string>
+
+    <string name="info_template">
+        TMM ДЗ 26 — Вариант 44\n
+        Взгляд на экране (px):   X=%1$s   Y=%2$s\n
+        Норм. координаты:        X=%3$s   Y=%4$s\n
+        Сырой gaze (blendshape): X=%5$s   Y=%6$s\n
+        Голова (pitch/yaw/roll): %7$s / %8$s / %9$s
+    </string>
+
+    <string name="status_template">Фиксаций: %1$d  |  средн. длит.: %2$d мс  |  общ. время: %3$d мс\n%4$s  |  %5$s</string>
+    <string name="status_fixating">фиксация: ДА (%1$d мс)</string>
+    <string name="status_not_fixating">фиксация: нет</string>
+    <string name="status_calibrated">калибровка: OK</string>
+    <string name="status_calibrated_err">калибровка: OK (ошибка %1$s px)</string>
+    <string name="status_uncalibrated">калибровка: не выполнена (линейный режим)</string>
+    <string name="status_camera_front">Камера: фронтальная</string>
+    <string name="status_camera_back">Камера: задняя (fallback)</string>
+    <string name="status_face_not_found">Лицо не обнаружено</string>
+    <string name="status_face_hint">Поднесите лицо ближе и держите его в кадре</string>
+
+    <string name="error_mediapipe">MediaPipe JNI недоступен: %1$s</string>
+    <string name="error_mediapipe_hint">Запустите debug на реальном устройстве (или после Sync/Rebuild)</string>
+    <string name="error_camera_unavailable">Камера недоступна</string>
+    <string name="error_camera_hint">Включите Virtual Scene/Webcam в настройках AVD</string>
+    <string name="error_camera_attach">Не удалось подключить камеру: %1$s</string>
+    <string name="error_camera_restart">Перезапустите приложение</string>
+
+    <string name="toast_camera_permission_required">Для работы нужен доступ к камере</string>
+    <string name="toast_fixations_cleared">Фиксации очищены</string>
+    <string name="toast_calibration_reset">Калибровка сброшена</string>
+    <string name="toast_calibration_done">Калибровка завершена</string>
+    <string name="toast_calibration_done_err">Калибровка завершена (ошибка %1$s px)</string>
+    <string name="toast_calibration_failed">Не удалось рассчитать калибровку — попробуйте ещё раз</string>
+    <string name="toast_no_fixations">Пока нет фиксаций для экспорта</string>
+    <string name="toast_export_failed">Ошибка экспорта: %1$s</string>
+
+    <string name="share_csv_title">Поделиться точками фиксации</string>
 </resources>
