@@ -42,6 +42,13 @@ class MainActivity : AppCompatActivity() {
         setContentView(binding.root)
         binding.previewView.implementationMode = PreviewView.ImplementationMode.PERFORMANCE
 
+        // Тап по экрану - быстрая рекалибровка "прямого взгляда".
+        binding.root.setOnClickListener {
+            gazeAnalyzer?.recalibrate()
+            fixationTracker.resetTracking()
+            Toast.makeText(this, "Калибровка: смотрите в центр экрана", Toast.LENGTH_SHORT).show()
+        }
+
         cameraExecutor = Executors.newSingleThreadExecutor()
         checkCameraPermissionAndStart()
     }

@@ -8,7 +8,6 @@ import android.graphics.Rect
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import com.google.mediapipe.framework.image.BitmapImageBuilder
-import com.google.mediapipe.tasks.components.containers.NormalizedLandmark
 import com.google.mediapipe.tasks.core.BaseOptions
 import com.google.mediapipe.tasks.core.Delegate
 import com.google.mediapipe.tasks.vision.core.ImageProcessingOptions
@@ -28,6 +27,15 @@ class GazeAnalyzer(
 
     private val isBusy = AtomicBoolean(false)
 
+    // Автокалибровка "прямого взгляда": базовое смещение зрачка при взгляде в центр.
+    // Без этого анатомическое смещение радужки давало рывок точки в край при старте.
+    @Volatile
+    private var baselineX: Float = 0f
+    @Volatile
+    private var baselineY: Float = 0f
+    @Volatile
+    private var baselineFrames: Int = 0
+
     private val faceLandmarker: FaceLandmarker = FaceLandmarker.createFromOptions(
         context,
         FaceLandmarker.FaceLandmarkerOptions.builder()
@@ -42,6 +50,7 @@ class GazeAnalyzer(
             .setMinFaceDetectionConfidence(0.45f)
             .setMinFacePresenceConfidence(0.45f)
             .setMinTrackingConfidence(0.45f)
+            .setOutputFaceBlendshapes(true)
             .setOutputFacialTransformationMatrixes(true)
             .setResultListener { result, input ->
                 onResult(buildResult(result, input.width, input.height))
@@ -123,17 +132,39 @@ class GazeAnalyzer(
         val leftEyeHalfH = (kotlin.math.abs(landmarks[159].y() - landmarks[145].y()) / 2f).coerceAtLeast(1e-4f)
         val rightEyeHalfH = (kotlin.math.abs(landmarks[386].y() - landmarks[374].y()) / 2f).coerceAtLeast(1e-4f)
 
-        val leftNormX = (leftIrisCenterN.x - leftEyeCenterN.x) / leftEyeHalfW
-        val rightNormX = (rightIrisCenterN.x - rightEyeCenterN.x) / rightEyeHalfW
-        val leftNormY = (leftIrisCenterN.y - leftEyeCenterN.y) / leftEyeHalfH
-        val rightNormY = (rightIrisCenterN.y - rightEyeCenterN.y) / rightEyeHalfH
+        // Главный источник направления взгляда - eye blendshapes из MediaPipe.
+        // Это ARKit-style значения (0..1): eyeLookUp/Down/In/Out для каждого глаза.
+        // Они описывают именно НАПРАВЛЕНИЕ ВЗГЛЯДА и не зависят от поворота головы.
+        val blendGaze = extractGazeFromBlendshapes(result)
 
-        // Чувствительность: реальное смещение радужки внутри глаза маленькое
-        // (~0.2-0.4 от полуширины), поэтому усиливаем, чтобы точка ходила по всему экрану.
-        val sensitivityX = 5.5f
-        val sensitivityY = 5.0f
-        val rawOffsetX = ((leftNormX + rightNormX) / 2f * sensitivityX).coerceIn(-1f, 1f)
-        val rawOffsetY = ((leftNormY + rightNormY) / 2f * sensitivityY).coerceIn(-1f, 1f)
+        val gazeOffsetX: Float
+        val gazeOffsetY: Float
+        if (blendGaze != null) {
+            // Используем blendshapes - чувствительный, но в среднем уже отнормированный 0..1.
+            val sensitivity = 2.0f
+            gazeOffsetX = (blendGaze.x * sensitivity).coerceIn(-1f, 1f)
+            gazeOffsetY = (blendGaze.y * sensitivity).coerceIn(-1f, 1f)
+        } else {
+            // Fallback на iris-метод (если blendshapes не вернулись).
+            val leftNormX = (leftIrisCenterN.x - leftEyeCenterN.x) / leftEyeHalfW
+            val rightNormX = (rightIrisCenterN.x - rightEyeCenterN.x) / rightEyeHalfW
+            val leftNormY = (leftIrisCenterN.y - leftEyeCenterN.y) / leftEyeHalfH
+            val rightNormY = (rightIrisCenterN.y - rightEyeCenterN.y) / rightEyeHalfH
+            val avgRawX = (leftNormX + rightNormX) / 2f
+            val avgRawY = (leftNormY + rightNormY) / 2f
+            if (baselineFrames < CALIBRATION_FRAMES) {
+                baselineX = (baselineX * baselineFrames + avgRawX) / (baselineFrames + 1)
+                baselineY = (baselineY * baselineFrames + avgRawY) / (baselineFrames + 1)
+                baselineFrames++
+            } else {
+                val drift = 0.002f
+                baselineX = baselineX * (1f - drift) + avgRawX * drift
+                baselineY = baselineY * (1f - drift) + avgRawY * drift
+            }
+            val fallbackSens = 6.0f
+            gazeOffsetX = ((avgRawX - baselineX) * fallbackSens).coerceIn(-1f, 1f)
+            gazeOffsetY = ((avgRawY - baselineY) * fallbackSens).coerceIn(-1f, 1f)
+        }
 
         val centerX = imageWidth / 2f
         val centerY = imageHeight / 2f
@@ -156,15 +187,18 @@ class GazeAnalyzer(
             ?.get(0)
         val euler = matrix?.let { eulerFromColumnMajor(it) } ?: Triple(0f, 0f, 0f)
 
-        // Точка взгляда зависит ТОЛЬКО от движения зрачков (радужки),
-        // повороты головы не подмешиваем, иначе точка прилипает к краю.
+        // Точка взгляда в координатах кадра.
+        // X: gazeOffsetX > 0 значит "пользователь смотрит вправо".
+        //    Из-за зеркала фронтальной камеры в OverlayView X инвертируется при отрисовке,
+        //    поэтому здесь нужно ВЫЧИТАТЬ, чтобы на экране точка оказалась справа.
+        // Y: gazeOffsetY > 0 значит "пользователь смотрит вниз" - просто прибавляем.
         val gainX = imageWidth * 0.5f
         val gainY = imageHeight * 0.5f
         val gazePoint = PointF(
-            (centerX + rawOffsetX * gainX).coerceIn(0f, imageWidth.toFloat()),
-            (centerY + rawOffsetY * gainY).coerceIn(0f, imageHeight.toFloat())
+            (centerX - gazeOffsetX * gainX).coerceIn(0f, imageWidth.toFloat()),
+            (centerY + gazeOffsetY * gainY).coerceIn(0f, imageHeight.toFloat())
         )
-        val worldGaze = PoseMath.normalize(floatArrayOf(rawOffsetX, rawOffsetY, 1f))
+        val worldGaze = PoseMath.normalize(floatArrayOf(gazeOffsetX, gazeOffsetY, 1f))
 
         return GazeFrameResult(
             boundingBox = faceBox,
@@ -178,6 +212,54 @@ class GazeAnalyzer(
             eulerZ = euler.third,
             gazeVector3D = worldGaze
         )
+    }
+
+    /**
+     * Извлекает направление взгляда из ARKit-style blendshapes.
+     * Возвращает PointF(x, y) где
+     *   x > 0 - смотрит вправо (с точки зрения пользователя)
+     *   y > 0 - смотрит вниз
+     * Диапазон примерно [-1, 1].
+     */
+    private fun extractGazeFromBlendshapes(result: FaceLandmarkerResult): PointF? {
+        val blendshapes = result.faceBlendshapes()
+            .takeIf { it.isPresent && it.get().isNotEmpty() }
+            ?.get()
+            ?.get(0) ?: return null
+
+        var lookUpL = 0f
+        var lookDownL = 0f
+        var lookInL = 0f
+        var lookOutL = 0f
+        var lookUpR = 0f
+        var lookDownR = 0f
+        var lookInR = 0f
+        var lookOutR = 0f
+
+        for (cat in blendshapes) {
+            when (cat.categoryName()) {
+                "eyeLookUpLeft" -> lookUpL = cat.score()
+                "eyeLookDownLeft" -> lookDownL = cat.score()
+                "eyeLookInLeft" -> lookInL = cat.score()
+                "eyeLookOutLeft" -> lookOutL = cat.score()
+                "eyeLookUpRight" -> lookUpR = cat.score()
+                "eyeLookDownRight" -> lookDownR = cat.score()
+                "eyeLookInRight" -> lookInR = cat.score()
+                "eyeLookOutRight" -> lookOutR = cat.score()
+            }
+        }
+
+        // Если ни одного из глазных blendshapes нет - считаем что модель их не возвращает.
+        val anyEyeBlend = listOf(lookUpL, lookDownL, lookInL, lookOutL,
+            lookUpR, lookDownR, lookInR, lookOutR).any { it > 1e-6f }
+        if (!anyEyeBlend) return null
+
+        // Для пользователя:
+        //   "вправо" = правый глаз смотрит наружу + левый глаз смотрит внутрь
+        //   "влево"  = левый глаз смотрит наружу + правый глаз смотрит внутрь
+        val horizontal = ((lookOutR + lookInL) - (lookOutL + lookInR)) / 2f
+        val vertical = ((lookDownL + lookDownR) - (lookUpL + lookUpR)) / 2f
+        return PointF(horizontal, vertical)
     }
 
     private fun imageProxyToBitmap(image: ImageProxy): Bitmap {
@@ -218,8 +300,15 @@ class GazeAnalyzer(
         faceLandmarker.close()
     }
 
+    fun recalibrate() {
+        baselineX = 0f
+        baselineY = 0f
+        baselineFrames = 0
+    }
+
     companion object {
         private const val MODEL_ASSET = "face_landmarker.task"
+        private const val CALIBRATION_FRAMES = 30
         private val LEFT_IRIS = intArrayOf(468, 469, 470, 471, 472)
         private val RIGHT_IRIS = intArrayOf(473, 474, 475, 476, 477)
         private val LEFT_EYE = intArrayOf(
