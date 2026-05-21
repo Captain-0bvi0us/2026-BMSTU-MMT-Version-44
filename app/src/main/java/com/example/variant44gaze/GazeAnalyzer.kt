@@ -127,8 +127,12 @@ class GazeAnalyzer(
         val leftNormY = (leftIrisCenterN.y - leftEyeCenterN.y) / leftEyeHalfH
         val rightNormY = (rightIrisCenterN.y - rightEyeCenterN.y) / rightEyeHalfH
 
-        val rawOffsetX = ((leftNormX + rightNormX) / 2f).coerceIn(-1f, 1f)
-        val rawOffsetY = ((leftNormY + rightNormY) / 2f).coerceIn(-1f, 1f)
+        // Чувствительность: реальное смещение радужки внутри глаза маленькое
+        // (~0.3-0.5 от полуширины), поэтому усиливаем, чтобы точка ходила по всему экрану.
+        val sensitivityX = 3.5f
+        val sensitivityY = 4.5f
+        val rawOffsetX = ((leftNormX + rightNormX) / 2f * sensitivityX).coerceIn(-1f, 1f)
+        val rawOffsetY = ((leftNormY + rightNormY) / 2f * sensitivityY).coerceIn(-1f, 1f)
 
         val centerX = imageWidth / 2f
         val centerY = imageHeight / 2f
