@@ -76,6 +76,7 @@ class MainActivity : AppCompatActivity() {
 
             val analysis = ImageAnalysis.Builder()
                 .setTargetResolution(Size(640, 480))
+                .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .build()
 
