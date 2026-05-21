@@ -278,7 +278,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun smoothRaw(current: PointF): PointF {
         val prev = smoothedRaw
-        val alpha = 0.38f
+        val alpha = 0.22f
         val smoothed = if (prev == null) {
             PointF(current.x, current.y)
         } else {
