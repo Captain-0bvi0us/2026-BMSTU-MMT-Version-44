@@ -27,6 +27,9 @@ class GazeAnalyzer(
 
     private val isBusy = AtomicBoolean(false)
 
+    @Volatile
+    private var lastRotationDegrees: Int = 0
+
     private val faceLandmarker: FaceLandmarker = FaceLandmarker.createFromOptions(
         context,
         FaceLandmarker.FaceLandmarkerOptions.builder()
@@ -67,8 +70,9 @@ class GazeAnalyzer(
         try {
             val bitmap = imageProxyToBitmap(imageProxy)
             val mpImage = BitmapImageBuilder(bitmap).build()
+            lastRotationDegrees = imageProxy.imageInfo.rotationDegrees
             val processingOptions = ImageProcessingOptions.builder()
-                .setRotationDegrees(imageProxy.imageInfo.rotationDegrees)
+                .setRotationDegrees(lastRotationDegrees)
                 .build()
             faceLandmarker.detectAsync(mpImage, processingOptions, System.currentTimeMillis())
             bitmap.recycle()
@@ -80,11 +84,18 @@ class GazeAnalyzer(
         }
     }
 
-    private fun buildResult(result: FaceLandmarkerResult, imageWidth: Int, imageHeight: Int): GazeFrameResult? {
+    private fun buildResult(result: FaceLandmarkerResult, rawWidth: Int, rawHeight: Int): GazeFrameResult? {
         val faces = result.faceLandmarks()
         if (faces.isEmpty()) return null
         val landmarks = faces[0]
         if (landmarks.size < 478) return null
+
+        // MediaPipe возвращает landmarks в "выпрямленной" системе координат после поворота.
+        // Если сенсор камеры в ландшафте (rotation 90/270), нужно поменять местами width/height,
+        // иначе точки прижимаются к одной стороне (как было видно на скрине).
+        val rotated = lastRotationDegrees == 90 || lastRotationDegrees == 270
+        val imageWidth = if (rotated) rawHeight else rawWidth
+        val imageHeight = if (rotated) rawWidth else rawHeight
 
         val leftEyeCenterN = averageNormalized(landmarks, LEFT_EYE)
         val rightEyeCenterN = averageNormalized(landmarks, RIGHT_EYE)
