@@ -98,15 +98,16 @@ class GazeAnalyzer(
         val landmarks = faces[0]
         if (landmarks.size < 478) return null
 
-        // Центры глаз берем по уголкам (33-133 для левого, 362-263 для правого),
-        // потому что средние по всему контуру могут смещаться к векам/щеке.
+        // Центр глаза по X - середина между уголками (33-133, 362-263).
+        // Центр глаза по Y - середина между верхним и нижним веком (159-145, 386-374),
+        // потому что уголки не лежат на линии зрачка и дают смещение точки вверх.
         val leftEyeCenterN = PointF(
             (landmarks[33].x() + landmarks[133].x()) / 2f,
-            (landmarks[33].y() + landmarks[133].y()) / 2f
+            (landmarks[159].y() + landmarks[145].y()) / 2f
         )
         val rightEyeCenterN = PointF(
             (landmarks[362].x() + landmarks[263].x()) / 2f,
-            (landmarks[362].y() + landmarks[263].y()) / 2f
+            (landmarks[386].y() + landmarks[374].y()) / 2f
         )
         // Центры радужек дают сами landmarks (468 и 473 - центральные точки).
         val leftIrisCenterN = PointF(landmarks[468].x(), landmarks[468].y())
@@ -128,9 +129,9 @@ class GazeAnalyzer(
         val rightNormY = (rightIrisCenterN.y - rightEyeCenterN.y) / rightEyeHalfH
 
         // Чувствительность: реальное смещение радужки внутри глаза маленькое
-        // (~0.3-0.5 от полуширины), поэтому усиливаем, чтобы точка ходила по всему экрану.
-        val sensitivityX = 3.5f
-        val sensitivityY = 4.5f
+        // (~0.2-0.4 от полуширины), поэтому усиливаем, чтобы точка ходила по всему экрану.
+        val sensitivityX = 5.5f
+        val sensitivityY = 5.0f
         val rawOffsetX = ((leftNormX + rightNormX) / 2f * sensitivityX).coerceIn(-1f, 1f)
         val rawOffsetY = ((leftNormY + rightNormY) / 2f * sensitivityY).coerceIn(-1f, 1f)
 
