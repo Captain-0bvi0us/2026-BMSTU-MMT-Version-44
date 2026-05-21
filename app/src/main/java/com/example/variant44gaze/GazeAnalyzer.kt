@@ -140,10 +140,12 @@ class GazeAnalyzer(
         val gazeOffsetX: Float
         val gazeOffsetY: Float
         if (blendGaze != null) {
-            // Используем blendshapes - чувствительный, но в среднем уже отнормированный 0..1.
-            val sensitivity = 2.0f
-            gazeOffsetX = (blendGaze.x * sensitivity).coerceIn(-1f, 1f)
-            gazeOffsetY = (blendGaze.y * sensitivity).coerceIn(-1f, 1f)
+            // Чувствительность по X сильно завышена - пользователь хочет,
+            // чтобы небольшое движение глаз вправо/влево уже укладывало точку у края.
+            val sensitivityX = 6.0f
+            val sensitivityY = 2.0f
+            gazeOffsetX = (blendGaze.x * sensitivityX).coerceIn(-1f, 1f)
+            gazeOffsetY = (blendGaze.y * sensitivityY).coerceIn(-1f, 1f)
         } else {
             // Fallback на iris-метод (если blendshapes не вернулись).
             val leftNormX = (leftIrisCenterN.x - leftEyeCenterN.x) / leftEyeHalfW
@@ -161,9 +163,10 @@ class GazeAnalyzer(
                 baselineX = baselineX * (1f - drift) + avgRawX * drift
                 baselineY = baselineY * (1f - drift) + avgRawY * drift
             }
-            val fallbackSens = 6.0f
-            gazeOffsetX = ((avgRawX - baselineX) * fallbackSens).coerceIn(-1f, 1f)
-            gazeOffsetY = ((avgRawY - baselineY) * fallbackSens).coerceIn(-1f, 1f)
+            val fallbackSensX = 14.0f
+            val fallbackSensY = 6.0f
+            gazeOffsetX = ((avgRawX - baselineX) * fallbackSensX).coerceIn(-1f, 1f)
+            gazeOffsetY = ((avgRawY - baselineY) * fallbackSensY).coerceIn(-1f, 1f)
         }
 
         val centerX = imageWidth / 2f
@@ -192,11 +195,15 @@ class GazeAnalyzer(
         //    Из-за зеркала фронтальной камеры в OverlayView X инвертируется при отрисовке,
         //    поэтому здесь нужно ВЫЧИТАТЬ, чтобы на экране точка оказалась справа.
         // Y: gazeOffsetY > 0 значит "пользователь смотрит вниз" - просто прибавляем.
+        // verticalShift поднимает "нейтральный" Y на треть экрана вверх,
+        // потому что при взгляде в центр экрана камера видит глаза немного "сверху",
+        // и MediaPipe в среднем считает что пользователь смотрит вниз.
         val gainX = imageWidth * 0.5f
-        val gainY = imageHeight * 0.5f
+        val gainY = imageHeight * 0.4f
+        val verticalShift = imageHeight / 3f
         val gazePoint = PointF(
             (centerX - gazeOffsetX * gainX).coerceIn(0f, imageWidth.toFloat()),
-            (centerY + gazeOffsetY * gainY).coerceIn(0f, imageHeight.toFloat())
+            (centerY + gazeOffsetY * gainY - verticalShift).coerceIn(0f, imageHeight.toFloat())
         )
         val worldGaze = PoseMath.normalize(floatArrayOf(gazeOffsetX, gazeOffsetY, 1f))
 
