@@ -157,7 +157,9 @@ class GazeAnalyzer(
                 baselineX = baselineX * (1f - drift) + avgRawX * drift
                 baselineY = baselineY * (1f - drift) + avgRawY * drift
             }
-            gx = ((avgRawX - baselineX) * IRIS_SENS_X).coerceIn(-1f, 1f)
+            // Инвертируем X по той же причине, что и в blendshape-методе: координаты iris
+            // приходят в системе изображения, которое зеркалит фронт-камера.
+            gx = (-(avgRawX - baselineX) * IRIS_SENS_X).coerceIn(-1f, 1f)
             gy = ((avgRawY - baselineY) * IRIS_SENS_Y).coerceIn(-1f, 1f)
         }
 
@@ -236,9 +238,12 @@ class GazeAnalyzer(
         ).any { it > 1e-6f }
         if (!anyEyeBlend) return null
 
-        // С точки зрения пользователя:
-        //   "вправо" = правый глаз смотрит наружу + левый смотрит внутрь.
-        val horizontal = ((lookOutR + lookInL) - (lookOutL + lookInR)) / 2f
+        // MediaPipe FaceLandmarker присваивает суффиксы Left/Right по сторонам ИЗОБРАЖЕНИЯ,
+        // а фронт-камера это изображение зеркалит. Поэтому "user смотрит вправо" по факту
+        // даёт всплеск eyeLookOutLeft + eyeLookInRight, и горизонтальный знак нужно
+        // инвертировать, чтобы результат был в системе координат пользователя
+        // (x > 0 — взгляд вправо со стороны пользователя).
+        val horizontal = ((lookOutL + lookInR) - (lookOutR + lookInL)) / 2f
         val vertical = ((lookDownL + lookDownR) - (lookUpL + lookUpR)) / 2f
         return PointF(horizontal, vertical)
     }
