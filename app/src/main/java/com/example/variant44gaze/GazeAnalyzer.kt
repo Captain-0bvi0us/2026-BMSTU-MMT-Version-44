@@ -2,6 +2,7 @@ package com.example.variant44gaze
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Matrix
 import android.graphics.PointF
 import android.graphics.Rect
 import androidx.camera.core.ImageAnalysis
@@ -26,9 +27,6 @@ class GazeAnalyzer(
 ) : ImageAnalysis.Analyzer {
 
     private val isBusy = AtomicBoolean(false)
-
-    @Volatile
-    private var lastRotationDegrees: Int = 0
 
     private val faceLandmarker: FaceLandmarker = FaceLandmarker.createFromOptions(
         context,
@@ -68,14 +66,24 @@ class GazeAnalyzer(
             return
         }
         try {
-            val bitmap = imageProxyToBitmap(imageProxy)
-            val mpImage = BitmapImageBuilder(bitmap).build()
-            lastRotationDegrees = imageProxy.imageInfo.rotationDegrees
+            val raw = imageProxyToBitmap(imageProxy)
+            val rotation = imageProxy.imageInfo.rotationDegrees
+            // Поворачиваем кадр сами, чтобы MediaPipe всегда получал "выпрямленную" портретную картинку.
+            // Так landmarks гарантированно приходят в системе координат экрана (X - горизонталь, Y - вертикаль).
+            val upright = if (rotation == 0) {
+                raw
+            } else {
+                val m = Matrix().apply { postRotate(rotation.toFloat()) }
+                val rotated = Bitmap.createBitmap(raw, 0, 0, raw.width, raw.height, m, true)
+                raw.recycle()
+                rotated
+            }
+            val mpImage = BitmapImageBuilder(upright).build()
             val processingOptions = ImageProcessingOptions.builder()
-                .setRotationDegrees(lastRotationDegrees)
+                .setRotationDegrees(0)
                 .build()
             faceLandmarker.detectAsync(mpImage, processingOptions, System.currentTimeMillis())
-            bitmap.recycle()
+            upright.recycle()
         } catch (_: Exception) {
             isBusy.set(false)
             onResult(null)
@@ -84,18 +92,11 @@ class GazeAnalyzer(
         }
     }
 
-    private fun buildResult(result: FaceLandmarkerResult, rawWidth: Int, rawHeight: Int): GazeFrameResult? {
+    private fun buildResult(result: FaceLandmarkerResult, imageWidth: Int, imageHeight: Int): GazeFrameResult? {
         val faces = result.faceLandmarks()
         if (faces.isEmpty()) return null
         val landmarks = faces[0]
         if (landmarks.size < 478) return null
-
-        // MediaPipe возвращает landmarks в "выпрямленной" системе координат после поворота.
-        // Если сенсор камеры в ландшафте (rotation 90/270), нужно поменять местами width/height,
-        // иначе точки прижимаются к одной стороне (как было видно на скрине).
-        val rotated = lastRotationDegrees == 90 || lastRotationDegrees == 270
-        val imageWidth = if (rotated) rawHeight else rawWidth
-        val imageHeight = if (rotated) rawWidth else rawHeight
 
         // Центры глаз берем по уголкам (33-133 для левого, 362-263 для правого),
         // потому что средние по всему контуру могут смещаться к векам/щеке.
