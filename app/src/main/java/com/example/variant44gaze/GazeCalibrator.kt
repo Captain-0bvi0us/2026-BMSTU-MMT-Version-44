@@ -122,8 +122,11 @@ class GazeCalibrator(context: Context) {
             return PointF(sx.toFloat(), sy.toFloat())
         }
         // Линейный фолбэк: gx ∈ [-1, 1] → [0..screenWidth], gy → центр + наклон.
-        val gx = gazeRaw.x.coerceIn(-1f, 1f)
-        val gy = gazeRaw.y.coerceIn(-1f, 1f)
+        // Дополнительный gain'ы вытягивают сигнал, потому что без калибровки
+        // сырой gaze редко достигает экстремумов — без усиления точка
+        // постоянно болтается у центра.
+        val gx = (gazeRaw.x * LINEAR_GAIN_X).coerceIn(-1f, 1f)
+        val gy = (gazeRaw.y * LINEAR_GAIN_Y).coerceIn(-1f, 1f)
         val sx = (0.5f + gx * 0.5f) * screenWidth
         val sy = (0.5f + gy * 0.5f) * screenHeight
         return PointF(sx.coerceIn(0f, screenWidth), sy.coerceIn(0f, screenHeight))
@@ -273,5 +276,11 @@ class GazeCalibrator(context: Context) {
         private const val PREFS_NAME = "gaze_calibration"
         private const val KEY_COEFFS_X = "coeffs_x"
         private const val KEY_COEFFS_Y = "coeffs_y"
+
+        // Множители для линейного режима (когда калибровка ещё не выполнена).
+        // X завышен сильнее, потому что горизонтальные движения глаз дают слабее
+        // сырой сигнал, чем вертикальные.
+        private const val LINEAR_GAIN_X = 1.8f
+        private const val LINEAR_GAIN_Y = 1.4f
     }
 }

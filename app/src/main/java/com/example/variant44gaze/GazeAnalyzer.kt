@@ -136,11 +136,13 @@ class GazeAnalyzer(
         val rightEyeHalfH = (kotlin.math.abs(landmarks[386].y() - landmarks[374].y()) / 2f).coerceAtLeast(1e-4f)
 
         val blendGaze = extractGazeFromBlendshapes(result)
-        val gx: Float
-        val gy: Float
+        val rawGx: Float
+        val rawGy: Float
         if (blendGaze != null) {
-            gx = blendGaze.x.coerceIn(-1f, 1f)
-            gy = blendGaze.y.coerceIn(-1f, 1f)
+            // Усиление сырого blendshape-сигнала: реальная амплитуда eyeLookOut/In редко
+            // достигает 1.0, обычно сидит в 0.2–0.5. Без множителя точка едва уходит от центра.
+            rawGx = (blendGaze.x * BLEND_GAIN_X).coerceIn(-1f, 1f)
+            rawGy = (blendGaze.y * BLEND_GAIN_Y).coerceIn(-1f, 1f)
         } else {
             val leftNormX = (leftIrisCenterN.x - leftEyeCenterN.x) / leftEyeHalfW
             val rightNormX = (rightIrisCenterN.x - rightEyeCenterN.x) / rightEyeHalfW
@@ -157,8 +159,8 @@ class GazeAnalyzer(
                 baselineX = baselineX * (1f - drift) + avgRawX * drift
                 baselineY = baselineY * (1f - drift) + avgRawY * drift
             }
-            gx = ((avgRawX - baselineX) * IRIS_SENS_X).coerceIn(-1f, 1f)
-            gy = ((avgRawY - baselineY) * IRIS_SENS_Y).coerceIn(-1f, 1f)
+            rawGx = ((avgRawX - baselineX) * IRIS_SENS_X).coerceIn(-1f, 1f)
+            rawGy = ((avgRawY - baselineY) * IRIS_SENS_Y).coerceIn(-1f, 1f)
         }
 
         val eyeDistance = max(kotlin.math.abs(rightEyeCenter.x - leftEyeCenter.x), 1f)
@@ -178,6 +180,18 @@ class GazeAnalyzer(
             ?.get()
             ?.get(0)
         val euler = matrix?.let { eulerFromColumnMajor(it) } ?: Triple(0f, 0f, 0f)
+        val pitchDeg = euler.first
+        val yawDeg = euler.second
+        val rollDeg = euler.third
+
+        // Дополняем сигнал глаз поворотом головы. Когда пользователь "смотрит" в край экрана,
+        // он почти всегда чуть-чуть докручивает голову — этот мини-поворот в чистом
+        // blendshape-сигнале не виден, и точка взгляда не доходит до края.
+        // HEAD_ANGLE_NORM = 25° соответствует gx = 1 (полный край экрана) только от головы.
+        val headGx = (yawDeg / HEAD_ANGLE_NORM_DEG).coerceIn(-1f, 1f)
+        val headGy = (pitchDeg / HEAD_ANGLE_NORM_DEG).coerceIn(-1f, 1f)
+        val gx = (rawGx + HEAD_WEIGHT_X * headGx).coerceIn(-1f, 1f)
+        val gy = (rawGy + HEAD_WEIGHT_Y * headGy).coerceIn(-1f, 1f)
 
         return GazeFrameResult(
             boundingBox = faceBox,
@@ -189,9 +203,9 @@ class GazeAnalyzer(
             imageWidth = imageWidth,
             imageHeight = imageHeight,
             gazeRaw = PointF(gx, gy),
-            eulerPitchDeg = euler.first,
-            eulerYawDeg = euler.second,
-            eulerRollDeg = euler.third,
+            eulerPitchDeg = pitchDeg,
+            eulerYawDeg = yawDeg,
+            eulerRollDeg = rollDeg,
             faceDetected = true,
             timestampMs = System.currentTimeMillis()
         )
@@ -290,7 +304,21 @@ class GazeAnalyzer(
     companion object {
         private const val MODEL_ASSET = "face_landmarker.task"
         private const val CALIBRATION_FRAMES = 30
-        private const val IRIS_SENS_X = 14.0f
+
+        // Усиление чистого blendshape-сигнала.
+        // По X сильнее, чем по Y, потому что горизонтальные саккады дают слабее всплеск
+        // в eyeLookOut/In, чем вертикальные в eyeLookDown/Up.
+        private const val BLEND_GAIN_X = 3.6f
+        private const val BLEND_GAIN_Y = 1.8f
+
+        // Усиление iris-fallback (когда blendshapes пустые).
+        private const val IRIS_SENS_X = 18.0f
         private const val IRIS_SENS_Y = 6.0f
+
+        // Сколько градусов поворота головы соответствуют полному размаху взгляда (gx=±1).
+        private const val HEAD_ANGLE_NORM_DEG = 25.0f
+        // Вклад поворота головы в итоговый gaze (0 — не учитываем, 1 — голова даёт полный размах).
+        private const val HEAD_WEIGHT_X = 0.55f
+        private const val HEAD_WEIGHT_Y = 0.45f
     }
 }
