@@ -97,10 +97,19 @@ class GazeAnalyzer(
         val imageWidth = if (rotated) rawHeight else rawWidth
         val imageHeight = if (rotated) rawWidth else rawHeight
 
-        val leftEyeCenterN = averageNormalized(landmarks, LEFT_EYE)
-        val rightEyeCenterN = averageNormalized(landmarks, RIGHT_EYE)
-        val leftIrisCenterN = averageNormalized(landmarks, LEFT_IRIS)
-        val rightIrisCenterN = averageNormalized(landmarks, RIGHT_IRIS)
+        // Центры глаз берем по уголкам (33-133 для левого, 362-263 для правого),
+        // потому что средние по всему контуру могут смещаться к векам/щеке.
+        val leftEyeCenterN = PointF(
+            (landmarks[33].x() + landmarks[133].x()) / 2f,
+            (landmarks[33].y() + landmarks[133].y()) / 2f
+        )
+        val rightEyeCenterN = PointF(
+            (landmarks[362].x() + landmarks[263].x()) / 2f,
+            (landmarks[362].y() + landmarks[263].y()) / 2f
+        )
+        // Центры радужек дают сами landmarks (468 и 473 - центральные точки).
+        val leftIrisCenterN = PointF(landmarks[468].x(), landmarks[468].y())
+        val rightIrisCenterN = PointF(landmarks[473].x(), landmarks[473].y())
 
         val leftEyeCenter = PointF(leftEyeCenterN.x * imageWidth, leftEyeCenterN.y * imageHeight)
         val rightEyeCenter = PointF(rightEyeCenterN.x * imageWidth, rightEyeCenterN.y * imageHeight)
@@ -140,16 +149,20 @@ class GazeAnalyzer(
             ?.get()
             ?.get(0)
         val euler = matrix?.let { eulerFromColumnMajor(it) } ?: Triple(0f, 0f, 0f)
-        val compensatedX = (rawOffsetX - euler.second * 0.006f).coerceIn(-1f, 1f)
-        val compensatedY = (rawOffsetY + euler.first * 0.005f).coerceIn(-1f, 1f)
-        val worldGaze = PoseMath.normalize(floatArrayOf(compensatedX, compensatedY, 1f))
+
+        // Точка взгляда зависит ТОЛЬКО от движения зрачков (радужки),
+        // повороты головы не подмешиваем, иначе точка прилипает к краю.
+        val gainX = imageWidth * 0.5f
+        val gainY = imageHeight * 0.5f
+        val gazePoint = PointF(
+            (centerX + rawOffsetX * gainX).coerceIn(0f, imageWidth.toFloat()),
+            (centerY + rawOffsetY * gainY).coerceIn(0f, imageHeight.toFloat())
+        )
+        val worldGaze = PoseMath.normalize(floatArrayOf(rawOffsetX, rawOffsetY, 1f))
 
         return GazeFrameResult(
             boundingBox = faceBox,
-            gazePointImage = PointF(
-                (centerX + compensatedX * imageWidth * 0.42f).coerceIn(0f, imageWidth.toFloat()),
-                (centerY + compensatedY * imageHeight * 0.42f).coerceIn(0f, imageHeight.toFloat())
-            ),
+            gazePointImage = gazePoint,
             leftEyeTrackPointImage = leftIrisCenter,
             rightEyeTrackPointImage = rightIrisCenter,
             imageWidth = imageWidth,
@@ -159,17 +172,6 @@ class GazeAnalyzer(
             eulerZ = euler.third,
             gazeVector3D = worldGaze
         )
-    }
-
-    private fun averageNormalized(landmarks: List<NormalizedLandmark>, indexes: IntArray): PointF {
-        var sx = 0f
-        var sy = 0f
-        for (idx in indexes) {
-            sx += landmarks[idx].x()
-            sy += landmarks[idx].y()
-        }
-        val n = indexes.size.toFloat()
-        return PointF(sx / n, sy / n)
     }
 
     private fun imageProxyToBitmap(image: ImageProxy): Bitmap {
